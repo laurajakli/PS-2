@@ -1,0 +1,5 @@
+1. Proof: 
+\[V\left( \frac{X}{m}\right) = \frac{1}{n}*\sum_{i=1}^{n}\left( \frac{X}{m} - \frac{\bar{X}}{m}\right)^2\]
+\[ = \frac{1}{n} * \frac{1}{m^{2}} * \sum_{i=1}^{n}(X - \bar{X})^2\]
+\[ = \frac{1}{m^{2}} * V(X)\]
+\[ = \frac{V(X)}{m^{2}}\]
