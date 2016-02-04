@@ -1,0 +1,463 @@
+setwd("~/Desktop/231B PSets") # set working directory for the project
+
+library(foreign)
+library(boot)
+library(knitr)
+library(png)
+library(grid)
+library(ggplot2)
+
+
+###Questions 6-9####
+
+###6###
+
+#Consider an experiment with one treatment group and one control group. There are 6 subjects;
+#3 subjects are assigned to treatment and 3 are assigned to control. Hypothetical potential
+#outcomes under treatment and control are depicted in Table 1.
+
+##(a) Does the treatment have a positive effect for every unit? On average, does it have a
+##positive effect for all units? Are these quantities parameters or estimators? What is
+##another term for the average i, that is, the number 1.5 found in the bottom-right cell?
+
+##No the treatment does not have a positive effect for every unit. It has a negative effect 
+##on subject 4. On average, it does have a positive effect for all units. These quantities
+##are parameters because we can conceive of them as the effect we could 
+##hypothetically observe in each unit under both treatment and control conditions.
+##Another term for the average Ti, that is, the number 1.5 found 
+##in the bottom-right cell, is the average treatment effect (ATE).
+
+##(b) How many possible random assignments are there in which 3 units are assigned to
+##treatment and 3 to control?
+
+##There are 20  possible random assignments in which 3 units are assigned to
+##treatment and 3 to control.
+
+##We can think of this as:
+## 6!/(3!3!) = 20
+
+##(c) Create a table showing, for each possible random assignment, the average response in
+##the treatment group, the average response in the control group, and the difference of
+##means across the treatment and control groups.
+
+
+##for these, we need a special function in r to help us get started.
+##The combn function essentially generates all combinations of n elements,
+##taken m at a time.
+
+##so here is how we would first go about generating this table, given 
+##6 people, half of which should be assigned to treatment:
+
+treat_assign <- combn(6, 3)
+treat_assign
+
+##based on our table we have the following Y0 and Y1:
+
+Y0<-c(4,7,3,7,3,3) 
+Y1<-c(5,7,7,6,6,5)
+
+##Now we need to get our difference of means through a function:
+##Let's use some of our previous code from 231A to help out:
+
+mean_diffs <- function(assign, y1, y0) {
+  treatmean <- mean(y1[assign])
+  controlmean <- mean(y0[-assign])
+  diff <- treatmean - controlmean
+  return(c(treatmean, controlmean, diff))
+}
+
+means_by_assignt <- apply(treat_assign, 2, FUN = mean_diffs, y1 = Y1, y0 = Y0)
+means_by_assignt <- t(means_by_assignt)
+as.data.frame(means_by_assignt)
+
+colnames(means_by_assignt) <- c("mean in treated", "mean in control","diff in means")
+rownames(means_by_assignt) <- paste("assignt", 1:20, sep = " ")
+means_by_assignt
+
+
+###D###
+
+##What is the average of the difference of means across the treatment and control groups,
+##across all these possible assignments? What do you conclude about the difference of
+##means, as an estimator for the average causal effect? Give a statistical rationale for
+##your conclusion.
+
+
+# First, let's find avg of treat mean across all possible assigments
+# remember that this is column 1 
+mean(means_by_assignt[, 1])
+
+
+# same for control
+# remember that this is column 2
+mean(means_by_assignt[, 2])
+
+# now diff of means
+# remember that this is column 3
+mean(means_by_assignt[, 3])
+
+###we can conclude that diff of means is an unbiased estimator for the ATE
+##because here we get 1.5--which is equivalent to ATE in table 1 (hypothetical
+## potential outcomes table)
+
+####E####
+
+##Calculate the variance of the average responses in the treatment group, across all possible
+##assignments. (That is, compute the mean squared deviation of each treatment group
+##mean from the overall average of the treatment group means, across all assignments).
+
+# so first we need pop variance function: 
+popvar <- function(x) {
+  mean((x - mean(x))^2)
+}
+
+## variance of the avg responses in the treat:
+
+popvar(means_by_assignt[, 1])
+
+
+###F####
+
+##Compare your answer in part (e) to the analytic formula for the sampling variance of
+##the treatment group mean, as presented in class. (Remember that you need a finite sample
+## correction factor: N-􀀀m/N-􀀀1 , where N is the size of the population, and m is the size
+##of the sample).
+
+# analytic formula for the sampling var of the treat
+
+sigsqrd <- popvar(Y1)
+sigsqrd
+
+samplingvar <- function(m, N, sigsqrd) {
+  (N - m)/(N - 1) * sigsqrd/m
+}
+
+samplingvar(m = 3, N = 6, sigsqrd = sigsqrd)
+
+##So analytic formula for sampling var of the mean is right.
+## Get equivalent answer as when calculating the var of the means across all
+## possible assignments.
+
+
+####7####
+
+##Using the data from Dunning and Harrison (2010)
+
+dat2 <- read.dta("Cross_Cutting_APSR_ReplicationData.dta")
+
+## (a) Carefully define the sharp (strict) null hypothesis involving
+##the “coethnic cousin” treatment condition and the “non-coethnic, non-cousin” 
+##control condition. (Be clear about the population for which the null hypothesis is defined).
+
+## The sharp null is that the unit causal effect of the “coethnic cousin” treatment
+##condition versus the “non-coethnic, non-cousin” control condition is Ti = 0 for all subjects.
+
+##(b) Use randomization inference to test the sharp null hypothesis.
+
+
+## So we compare 'coethnic cousin' to 'non-coethnic, non-cousin', 
+#so treatment 1 vs treatment 4 are relevant here.
+
+assign1 <- cbind(dat2$vote_prefer[dat2$treat_assign == 1], dat2$vote_prefer[dat2$treat_assign == 1])
+assign4 <- cbind(dat2$vote_prefer[dat2$treat_assign == 4], dat2$vote_prefer[dat2$treat_assign == 4])
+newdata <- data.frame(rbind(assign1, assign4))
+
+newdata <- as.data.frame(newdata)
+
+treat <- c(c(rep(1,136)), c(rep(0,288-136)))
+
+# getting observed outcomes
+newdata$treat <- sample(treat, 288, replace = FALSE)
+newdata$observed <- ifelse(newdata$treat == 1, newdata$X1 , newdata$X2)
+
+
+fake_treats <- matrix(NA, 10000, 288)
+for (i in 1:10000){
+  fake_treats[i,] <- sample(newdata$treat, 288, replace=F)
+}
+
+fake_treats <- unique(fake_treats)
+
+rand_ate <- NA # placeholder vector for results
+
+for (i in 1:nrow(fake_treats)){ # for each of the fake treatment vectors
+  
+  mean_treat <- mean(newdata$observed[fake_treats[i,]==1])
+  
+  mean_control <- mean(newdata$observed[fake_treats[i,]==0])
+  
+  # calculating ATE for this randomization
+  rand_ate[i] <- mean_treat - mean_control
+  
+}
+
+rand_ate
+
+ATE<-mean(dat2$vote_prefer[dat2$treat_assign == 1])-mean(dat2$vote_prefer[dat2$treat_assign == 4])
+
+ATE
+
+# p-value
+# Two tailed
+sum(abs(rand_ate)>=ATE)/length(rand_ate)
+
+##so the p-value is 0
+
+##(c) Carefully define the weak null hypothesis involving the “coethnic cousin” treatment
+##condition and the “non-coethnic, non-cousin” control condition. 
+##(Be clear about the population for which the null hypothesis is defined).
+
+## The weak null is that the AVERAGE causal effect of the “coethnic cousin” treatment
+##condition versus the “non-coethnic, non-cousin” control condition is Ti = 0
+##This need not be the case for individual units.
+
+
+##(d) Building on the code you have used in section, write a t-test function in R that takes the
+##treatment and the outcome data and returns the difference of means, its standard error
+##and the p-value. Use this function to test the weak null hypothesis.
+
+
+# T-test function with diff of means, SEs, and p-value
+ttest <- function(y, x) {
+  # For diff of means
+  mean1 <- mean(y[x == 1], na.rm = T)
+  mean0 <- mean(y[x == 0], na.rm = T)
+  diff <- mean1 - mean0
+  # For SE of the diff
+  N1 <- length(na.omit(y[x == 1]))
+  N0 <- length(na.omit(y[x == 0]))
+  var1 <- var(y[x == 1], na.rm = T)
+  var0 <- var(y[x == 0], na.rm = T)
+  varN1 <- var1/N1
+  varN0 <- var0/N0
+  se.diff <- sqrt(varN1 + varN0)
+  # For T-statistic
+  t <- ATE/se.diff
+  # For Degrees of freedom (df)
+  df.num <- ((varN1 + varN0)^2)
+  df.den <- (varN1^2)/(N1 - 1) + (varN0^2)/(N0 - 1)
+  df <- df.num/df.den
+  # for 2-tailed P-value
+  if (t >= 0) {
+    p <- pt(t, df, lower.tail = F) + pt(-t, df, lower.tail = T)
+  }
+  if (t < 0) {
+    p <- pt(t, df, lower.tail = T) + pt(-t, df, lower.tail = F)
+  }
+  # Output space
+  res <- c(mean1, mean0, diff, se.diff, t, (N1 + N0), df, p)
+  names(res) <- c("Mean 1", "Mean 0", "Diff", "SE Diff",
+                  "t-stat", "N", "df", "P-val")
+  return(c(res))
+}
+ttest(y=newdata$observed, x=newdata$treat)
+
+
+#So we can reject the weak null hypothesis since p-value so small. 
+
+###(e)###
+##Compare your p-values from the (b) and (d). In which case (or neither, or both) would
+##you reject the null hypothesis? If your p-values are very different, why are they different?
+##If they are very similar, why are they similar?
+
+###We reject the null hypothesis in both bases. The p-values are similar, and significant.
+###They are similar because when we observe a significant difference at a unit
+###level as well as on average, and since the difference is in one general 
+###direction, the average treatment effect is in that direction as well, instead of
+### being cancelled out (i.e., approaching zero) based on negative and positive treatment
+### effects effectively "cancelling out".
+. 
+
+####8####
+
+## Is the standard deviation of the sample an unbiased estimator of the standard deviation in
+##the population? Does your answer depend on whether you are sampling with or without
+##replacement? Use R to write simulations to answer these questions. Note that R uses (n-1)
+##for the denominator of sd( ).
+ 
+##First we need a box to sample from. We will create two different boxes, one with some “Bill Gates” in it.
+
+pop1 <- rnorm(50, 0, 5) # no outliers
+pop2 <- c(rnorm(48, 0, 5), 9, 14) # two outliers
+
+##Let’s find the stand dev of each box
+
+apply(cbind(pop1, pop2), 2, FUN=sd)
+
+#We will sample 25 units from each population with and without replacement
+
+#We will repeat this process 10,000 times
+
+sample_SDs <- matrix(NA, 10000, 4)
+
+for (i in 1:10000){
+  sample_SDs[i,] <- c(sd(sample(pop1, 25, replace=T)),
+                        sd(sample(pop1, 25, replace=F)),
+                        sd(sample(pop2, 25, replace=T)), 
+                        sd(sample(pop2, 25, replace=F)))
+}
+
+head(sample_SDs)
+
+
+sample_SDs <- as.data.frame(sample_SDs)
+names(sample_SDs) <- c("pop1_with", "pop1_without",
+                         "pop2_with", "pop2_without")
+
+par(mfrow=c(1,2))
+# plots for population 1
+plot(density(sample_SDs$pop1_without), lwd=3, col="blue",
+     xlim=c( 0, 10),
+     main="Distribution of sample SDs \n population 1 (no outliers)")
+lines(density(sample_SDs$pop1_with), lwd=3, col="red")
+# plots for population 2
+plot(density(sample_SDs$pop2_without), lwd=3, col="blue",
+     xlim=c(0, 10),
+     main="Distribution of sample SDs \n population 2 (with outliers)")
+lines(density(sample_SDs$pop2_with), lwd=3, col="red")
+
+#Blue = sampling without replacement, Red = sampling with replacement
+apply(sample_SDs, 2, FUN=sd)
+
+###The standard deviation of the sample seems to NOT be an unbiased estimator 
+## either with and without replacement. The standard deviation is very sensitive
+## to ouliers.
+
+
+####9####
+
+##For this question, you will compare the true standard error of ATE to the “conservative”
+##standard error.
+
+
+###a###
+##First, consider the following R code:
+
+set.seed(1234567)
+N <- 60
+m <- 30
+y0 <- rnorm(N, 2, 3)
+y1 <- y0 + rnorm(N, 1, 2)
+# y0 and y1 are potential outcomes; the ATE is about 1
+data <- data.frame(y0, y1)
+
+###b###
+
+##Suppose that m units are assigned at random to treatment, with N-m assigned to control.
+##Is the difference between the average y1 in the treatment group and the average y0 in
+##the control group a random variable?
+
+##Yes, because a random variable is the outcome of a statistical experiment. 
+##The sample of size N, the population of interest in the discussion sofar, is assumed to be
+##a simple random sample from a population. This implies that the average treatment
+##effect in the sample, the finite population average treatment effect, Ti = Yi(1) − Yi(0), can
+##be viewed as a random variable.
+
+
+##(c) What is the true standard error of this difference of means? What is the “conservative”
+##standard error?
+##(Note: in both cases we are asking about standard errors defined by
+##parameters—not sample quantities).
+
+##First let's define variance and covariance as functions we can then use
+##based off equations given in lecture. 
+
+variance <- function(x) {
+  mean((x - mean(x))^2)
+}
+
+covariance <- function (x, y) {
+  ((mean(x*y)-(mean(x)*mean(y))))
+}
+
+##true standard error 
+
+SE <-sqrt(((variance(y1)+ variance(y0))-2*covariance(y1, y0)))
+SE
+ 
+## conservative standard error 
+conSE <-sqrt(variance(y1)+ variance(y0))
+conSE
+
+
+##(d) Now, complete the code above to build a simulation in which there are 10,000 replicates.
+#In each replicate, m of the units are assigned at random to treatment. Save
+#the conservative SE(ATE) for each replicate. Plot the distribution of the conservative
+#SE(ATE)s across the 10,000 replicates. Add a vertical line to your plot at the value of
+#the true standard error.
+
+
+# We first need to define the number of units we will draw from the box 
+# (with replacement). 
+##Let's take N=m
+N <- m
+boot_sample <- sample(data$y1, N, replace=T) 
+
+##And then take the statistic of interest for this bootstrap sample, 
+##here the conservative SE.
+sqrt(variance(boot_sample)+ variance(boot_sample))
+
+
+boot_reps <- 10000 # number of bootstrap replicates for
+boot_SE <- NA # placeholder vector for the results
+
+for (i in 1:boot_reps){
+  boot_sample <- sample(data$y1, N, replace=T) 
+  boot_SE[i] <- sqrt(variance(boot_sample)+ variance(boot_sample))
+}
+  
+# Now we plot the results
+m <- ggplot(as.data.frame(boot_SE), aes(x=boot_SE))
+# First we plot a histogram with the results
+m + geom_histogram(aes(y = ..density..), alpha=.5, binwidth=.1) + 
+  # and overlay a line with the density of a normal distribution with mean equal to the 
+  # mean of the bootstrap means and sd equal to the sd of the bootstrap means.
+  stat_function(fun=dnorm, 
+                args=list(mean=mean(boot_SE), sd=sd(boot_SE)), 
+                col="blue", size=1) +
+  # and we add a vertical line for the mean of the box
+  geom_vline(x=SE, col="red", size=1) + theme_bw()
+
+
+##(e) Referring to your plot from part (d), explain why the estimated standard error is called
+#“conservative”?
+
+##The estimated standard error is called "conservative" because it is larger/wider
+##(i.e.,more encompassing) and therefore fewer results would be considered outliers 
+##(and thereby, fewer would be considered significant. This means we are erring
+##on the side of caution (i.e., conservativism) when it comes to rejecting null hypotheses.
+
+
+##(f) Under what conditions would the true standard error equal the conservative standard
+#error in part (a)? Modify the code excerpted above so that this equality holds.
+
+## The true standard error would equal the conservative standard
+#error if the covariance between treatment and control units were 0.
+
+N <- m
+boot_sample <- sample(data$y1, N, replace=T) 
+
+##And then take the statistic of interest for this bootstrap sample, 
+##here the conservative SE.
+sqrt(variance(boot_sample)+ variance(boot_sample))
+
+
+boot_reps <- 10000 # number of bootstrap replicates for
+boot_SE <- NA # placeholder vector for the results
+
+for (i in 1:boot_reps){
+  boot_sample <- sample(data$y1, N, replace=T) 
+  boot_SE[i] <- sqrt(variance(boot_sample)+ variance(boot_sample))
+}
+
+# Now we plot the results
+m <- ggplot(as.data.frame(boot_SE), aes(x=boot_SE))
+# First we plot a histogram with the results
+m + geom_histogram(aes(y = ..density..), alpha=.5, binwidth=.1) + 
+  # and overlay a line with the density of a normal distribution with mean equal to the 
+  # mean of the bootstrap means and sd equal to the sd of the bootstrap means.
+  stat_function(fun=dnorm, 
+                args=list(mean=mean(boot_SE), sd=sd(boot_SE)), 
+                col="blue", size=1) +
+  # and we add a vertical line for the mean of the box
+  geom_vline(x=conSE, col="red", size=1) + theme_bw()
